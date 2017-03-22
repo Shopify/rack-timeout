@@ -9,21 +9,27 @@ class Rack::Timeout::Scheduler::Timeout
   def initialize(&on_timeout)
     @on_timeout = on_timeout || ON_TIMEOUT
     @scheduler  = Rack::Timeout::Scheduler.singleton
+    @job        = nil
   end
 
   # takes number of seconds to wait before timing out, and code block subject to time out
   def timeout(secs, &block)
     return block.call if secs.nil? || secs.zero?            # skip timeout flow entirely for zero or nil
     thr = Thread.current                                    # reference to current thread to be used in timeout thread
-    job = @scheduler.run_in(secs) { @on_timeout.call thr }  # schedule this thread to be timed out; should get cancelled if block completes on time
+    previous_job = @job
+    @job = @scheduler.run_in(secs) { @on_timeout.call thr } # schedule this thread to be timed out; should get cancelled if block completes on time
     return block.call                                       # do what you gotta do
   ensure                                                    #
-    job.cancel! if job                                      # cancel the scheduled timeout job; if the block completed on time, this
+    @job.cancel! if @job                                    # cancel the scheduled timeout job; if the block completed on time, this
+    @job = previous_job
   end                                                       # will get called before the timeout code's had a chance to run.
+
+  def delay(secs)
+    @scheduler.delay(@job, secs)
+  end
 
   # timeout method on singleton instance for when a custom on_timeout is not required
   def self.timeout(secs, &block)
     (@singleton ||= new).timeout(secs, &block)
   end
-
 end
